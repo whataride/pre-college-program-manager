@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "Program": {
+      "title": "Pre-College Program",
+      "description": "A pre-college summer or academic year program for high school students.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The name of the program." },
+        "institution": { "type": "string", "description": "The college or organization hosting the program." },
+        "location": { "type": "string", "description": "City, State or Country." },
+        "category": { "type": "string", "description": "Subject area (e.g., STEM, Humanities, Arts)." },
+        "deadline": { "type": "string", "format": "date", "description": "Application deadline." },
+        "startDate": { "type": "string", "format": "date", "description": "Program start date." },
+        "endDate": { "type": "string", "format": "date", "description": "Program end date." },
+        "cost": { "type": "number", "description": "Program tuition or fees." },
+        "isResidential": { "type": "boolean", "description": "Whether the program is residential." },
+        "eligibility": { "type": "string", "description": "Grade levels or other requirements." },
+        "website": { "type": "string", "format": "uri", "description": "Program website URL." },
+        "selectivity": { "type": "string", "description": "Inferred selectivity or credibility." },
+        "notes": { "type": "string", "description": "Additional counselor notes." },
+        "createdBy": { "type": "string", "description": "UID of the counselor who added this." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the program was added." }
+      },
+      "required": ["name", "institution", "category", "createdBy"]
+    },
+    "User": {
+      "title": "User Profile",
+      "description": "User account information and role.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "counselor"] },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" }
+      },
+      "required": ["email", "role"]
+    },
+    "Invitation": {
+      "title": "Counselor Invitation",
+      "description": "Pre-authorized email for a counselor role.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "counselor"] },
+        "invitedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "role", "invitedBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/programs": {
+      "schema": "Program",
+      "description": "Collection of pre-college programs."
+    },
+    "/users": {
+      "schema": "User",
+      "description": "User profiles and roles."
+    },
+    "/invitations": {
+      "schema": "Invitation",
+      "description": "Pending counselor invitations."
+    }
+  }
+}

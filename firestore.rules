@@ -1,0 +1,139 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: programs
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required, 1-200 chars)
+    //   - institution: string (required, 1-200 chars)
+    //   - location: string (optional, 0-200 chars)
+    //   - category: string (required, 1-100 chars)
+    //   - deadline: string (optional, ISO 8601)
+    //   - startDate: string (optional, ISO 8601)
+    //   - endDate: string (optional, ISO 8601)
+    //   - cost: number (optional, >= 0)
+    //   - isResidential: bool (optional)
+    //   - eligibility: string (optional, 0-1000 chars)
+    //   - website: string (optional, URL format)
+    //   - notes: string (optional, 0-5000 chars)
+    //   - createdBy: string (required, matches auth.uid)
+    //   - createdAt: string (required, ISO 8601)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.createdBy;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url == "" || url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && (dateStr == "" || dateStr.matches("^\\d{4}-\\d{2}-\\d{2}.*"));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidProgram(data) {
+      return hasRequiredFields(['name', 'institution', 'category', 'createdBy', 'createdAt']) &&
+             hasOnlyAllowedFields(['name', 'institution', 'location', 'category', 'deadline', 'startDate', 'endDate', 'cost', 'isResidential', 'eligibility', 'website', 'selectivity', 'notes', 'createdBy', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.institution is string && data.institution.size() > 0 && data.institution.size() <= 200 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 100 &&
+             (!('location' in data) || (data.location is string && data.location.size() <= 200)) &&
+             (!('deadline' in data) || isValidDateString(data.deadline)) &&
+             (!('startDate' in data) || isValidDateString(data.startDate)) &&
+             (!('endDate' in data) || isValidDateString(data.endDate)) &&
+             (!('cost' in data) || (data.cost is number && data.cost >= 0)) &&
+             (!('isResidential' in data) || data.isResidential is bool) &&
+             (!('eligibility' in data) || (data.eligibility is string && data.eligibility.size() <= 1000)) &&
+             (!('website' in data) || isValidUrl(data.website)) &&
+             (!('selectivity' in data) || (data.selectivity is string && data.selectivity.size() <= 5000)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 5000)) &&
+             data.createdBy == request.auth.uid &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+          (request.auth.token.email == "whataride.lyp@gmail.com" && request.auth.token.email_verified == true)); // Default admin
+    }
+
+    function isCounselor() {
+      return isAuthenticated() &&
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'counselor' || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')) ||
+          (request.auth.token.email == "whataride.lyp@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /programs/{programId} {
+      // Counselors and Admins can read all programs
+      allow read: if isCounselor() || isAdmin();
+      
+      // Only Admins can write programs
+      allow create: if isAdmin() && isValidProgram(request.resource.data);
+      allow update: if isAdmin() && 
+                      isValidProgram(request.resource.data) &&
+                      request.resource.data.createdBy == resource.data.createdBy &&
+                      request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAdmin();
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow create: if isAuthenticated() && isOwner(userId) && 
+                      (request.resource.data.role == 'counselor' || 
+                       (request.resource.data.role == 'admin' && request.auth.token.email == "whataride.lyp@gmail.com"));
+      allow update: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin() && userId != request.auth.uid; // Admins can delete others, but not themselves
+    }
+
+    // Invitations
+    match /invitations/{invitationId} {
+      // Admins can manage all invitations
+      // Users can read their own invitation to auto-provision their account
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.email == request.auth.token.email);
+      allow create: if isAdmin() && 
+                      hasRequiredFields(['email', 'role', 'invitedBy', 'createdAt']) &&
+                      isValidEmail(request.resource.data.email) &&
+                      request.resource.data.role in ['admin', 'counselor'] &&
+                      request.resource.data.invitedBy == request.auth.uid;
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.email == request.auth.token.email);
+    }
+  }
+}
